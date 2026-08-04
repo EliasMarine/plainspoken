@@ -1,0 +1,6 @@
+# runtime outputs live next to the handler; only the handler is tracked
+.plainspoken/*
+!.plainspoken/plainspoken.py
+testbed/
+__pycache__/
+.DS_Store
