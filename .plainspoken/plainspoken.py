@@ -24,7 +24,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 MODEL = "claude-haiku-4-5"
 MAX_SNIPPET_CHARS = 3000  # cap what we send to the model per change
@@ -744,8 +744,8 @@ def render_changelog() -> None:
     # Two findings can share a basename (src/a/util.ts vs src/b/util.ts) and
     # read as duplicates; show the full path whenever the short name collides.
     name_counts = {}
-    for f in findings.values():
-        name_counts[safe_name(f.get("file", ""))] = name_counts.get(safe_name(f.get("file", "")), 0) + 1
+    for path in {f.get("file", "") for f in findings.values()}:
+        name_counts[safe_name(path)] = name_counts.get(safe_name(path), 0) + 1
 
     def display_name(path: str) -> str:
         base = safe_name(path)
@@ -1127,6 +1127,11 @@ def cmd_narrate() -> None:
         # narration must COVER them: BEFORE starts at the burst's first edit
         # and the model is told the entry spans several recent edits.
         doc_note = narration_note(fname)
+        if hits:
+            doc_note += ("NOTE: a safety scanner flagged this change, so it has a "
+                         "consequence worth describing. Never reply with the "
+                         "internal-tidying line for this one; say what the change "
+                         "actually does.\n\n")
         before_src = (old_text or "")[:600]
         burst_ctx = ""
         if BURST:
@@ -1228,9 +1233,12 @@ def cmd_digest() -> None:
     if payload.get("hook_event_name") == "SubagentStop":
         return
     # The turn ended: settle any open bursts first so their narrations join
-    # this digest instead of dangling until the next edit. Self-recording.
-    if BURST:
-        flush_bursts(force=True)
+    # this digest instead of dangling until the next edit. Self-recording —
+    # and rendered right away, so a digest killed by the hook timeout later
+    # cannot leave already-narrated work invisible.
+    if BURST and flush_bursts(force=True):
+        with locked():
+            render_changelog()
     all_records = load_events()
     if not all_records:
         return

@@ -416,3 +416,37 @@ assert "src/a/util.ts" in mdH and "src/b/util.ts" in mdH, "colliding basenames m
 assert "flagged STOP AND CHECK" in mdH and "see Open warnings at the top" in mdH, "flagged entry must carry inline marker"
 
 print("V1.2 DOC-AWARE + RENDER CHECKS PASSED")
+
+# ---------- v1.2.1 ----------
+# one file hit by two rules keeps its short name; genuine collisions expand
+psI, projI = fresh()
+storeI = projI / ".plainspoken"; storeI.mkdir()
+(storeI / "events.jsonl").write_text("")
+(storeI / "findings.json").write_text(json.dumps({
+    "http_plain::src/tracker.js": {"rule": "http_plain", "file": "src/tracker.js",
+        "severity": "keep_an_eye_on", "name": "n1", "ask": "a", "status": "open",
+        "first_seen": "t", "last_seen": "t", "warning_md": ""},
+    "new_network_dest::src/tracker.js": {"rule": "new_network_dest", "file": "src/tracker.js",
+        "severity": "keep_an_eye_on", "name": "n2", "ask": "a", "status": "open",
+        "first_seen": "t", "last_seen": "t", "warning_md": ""},
+}))
+with psI.locked():
+    psI.render_changelog()
+mdI = (storeI / "CHANGELOG.plain.md").read_text()
+assert "`tracker.js`" in mdI and "`src/tracker.js`" not in mdI, "two rules on one file must keep the short name"
+# flush at Stop renders even if the digest model dies afterwards
+psJ, projJ = fresh(burst="on")
+psJ.call_model = MOCK
+wr(projJ, "vis.py", "print('a stub that must become visible at stop')", ps=psJ)
+def die_on_digest(system, user, max_tokens=150):
+    if system == psJ.DIGEST_SYSTEM:
+        raise SystemExit(1)  # simulate the hook being killed mid-digest
+    return "The app shows a new thing. AFFECTS: looks"
+psJ.call_model = die_on_digest
+try:
+    run(psJ, "digest", {"session_id": "s1", "hook_event_name": "Stop"})
+except SystemExit:
+    pass
+mdJ = (projJ / ".plainspoken/CHANGELOG.plain.md").read_text()
+assert "The app shows a new thing" in mdJ, "settled burst must be visible even when the digest dies"
+print("V1.2.1 CHECKS PASSED")
