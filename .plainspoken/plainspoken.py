@@ -289,6 +289,17 @@ def store_dir() -> Path:
     return d
 
 
+def _err_desc(exc: Exception) -> str:
+    """Loggable one-line error description. Subprocess exceptions embed the
+    full argv — which carries the prompt and therefore file content — so they
+    are reduced to their bare type name. Everything else logs type + a short
+    message (API/CLI error text, never our payloads)."""
+    import subprocess
+    if isinstance(exc, (subprocess.TimeoutExpired, subprocess.CalledProcessError)):
+        return type(exc).__name__
+    return f"{type(exc).__name__}: {str(exc)[:160]}"
+
+
 def log_error(msg: str) -> None:
     try:
         with open(store_dir() / "errors.log", "a") as f:
@@ -902,11 +913,24 @@ def flush_bursts(force: bool = False) -> bool:
             f"AFTER (the file as it stands now):\n{after}\n"
             f"</untrusted_change_content>"
         )
+        placeholder = "(Plain-English explanation unavailable for this change; the change itself went through normally.)"
         try:
             narration = call_model(NARRATOR_SYSTEM, snippet, max_tokens=DETAIL_TOKENS.get(DETAIL, 300))
-        except Exception:
-            log_error("burst narration failed; burst recorded without narration")
-            narration = "(Plain-English explanation unavailable for this change; the change itself went through normally.)"
+        except Exception as first_exc:
+            # Bursts are not latency-sensitive: one retry, but only inside
+            # the flush time budget so failures can't stack past the hook
+            # timeout. (A timeout-killed hook loses nothing anyway — the
+            # group stays unflushed and retries on the next invocation.)
+            if time.monotonic() < flush_deadline:
+                try:
+                    narration = call_model(NARRATOR_SYSTEM, snippet, max_tokens=DETAIL_TOKENS.get(DETAIL, 300))
+                    log_error(f"burst narration succeeded on retry (first attempt: {_err_desc(first_exc)})")
+                except Exception as exc:
+                    log_error(f"burst narration failed after retry ({_err_desc(exc)}); burst recorded without narration")
+                    narration = placeholder
+            else:
+                log_error(f"burst narration failed ({_err_desc(first_exc)}); no budget left to retry; burst recorded without narration")
+                narration = placeholder
         narration, affects = _parse_affects(narration)
         narrated += 1
         event = {
@@ -1032,8 +1056,8 @@ def cmd_narrate() -> None:
         )
         try:
             narration = call_model(NARRATOR_SYSTEM, snippet, max_tokens=DETAIL_TOKENS.get(DETAIL, 300))
-        except Exception:
-            log_error("narrator model call failed; event preserved without narration")
+        except Exception as exc:
+            log_error(f"narrator model call failed ({_err_desc(exc)}); event preserved without narration")
             narration = "(Plain-English explanation unavailable for this change; the change itself went through normally.)"
         narration, affects = _parse_affects(narration)
 
@@ -1055,8 +1079,8 @@ def cmd_narrate() -> None:
                 if "ASK CLAUDE THIS" not in polished:
                     polished += f"\nASK CLAUDE THIS: \"{worst['ask']}\""
                 warnings_by_rule[worst["id"]] = polished
-            except Exception:
-                log_error(f"inspector model call failed for rule {worst['id']}; using template")
+            except Exception as exc:
+                log_error(f"inspector model call failed for rule {worst['id']} ({_err_desc(exc)}); using template")
 
     with locked():
         # A real-time entry (warning path, sensitive file, or bursts off)
@@ -1199,10 +1223,10 @@ def cmd_digest() -> None:
                         "affects": tag if tag in ALLOWED_AFFECTS else "plumbing",
                         "narration": m.group(2).strip(), "warnings": [],
                     })
-        except Exception:
+        except Exception as exc:
             # The cursor must not advance past unnarrated stubs; they retry
             # at the next Stop.
-            log_error("economy batch narration failed; stubs remain for next digest")
+            log_error(f"economy batch narration failed ({_err_desc(exc)}); stubs remain for next digest")
             batch_failed = True
             break
 
@@ -1275,8 +1299,8 @@ def cmd_digest() -> None:
             # NO_DIGEST still advances the cursor so the same slice is not
             # resubmitted (and re-billed) on every subsequent Stop.
             new_events.append(cursor_marker)
-    except Exception:
-        log_error("digest model call failed; events preserved, view still re-rendered")
+    except Exception as exc:
+        log_error(f"digest model call failed ({_err_desc(exc)}); events preserved, view still re-rendered")
 
     commit(new_events)
 
