@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo.svg" alt="Plainspoken logo: a megaphone announcing changes, with one sound wave flagged amber" width="140">
+  </picture>
+</p>
+
 # Plainspoken
 
 [![CI](https://github.com/EliasMarine/plainspoken/actions/workflows/ci.yml/badge.svg)](https://github.com/EliasMarine/plainspoken/actions/workflows/ci.yml)

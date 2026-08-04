@@ -454,3 +454,9 @@ except SystemExit:
 mdJ = (projJ / ".plainspoken/CHANGELOG.plain.md").read_text()
 assert "The app shows a new thing" in mdJ, "settled burst must be visible even when the digest dies"
 print("V1.2.1 CHECKS PASSED")
+
+# ---------- v1.2.2: xmlns is not a connection ----------
+psK, _ = fresh()
+assert not any(h["id"] == "http_plain" for h in psK.run_rules('<svg xmlns="http://www.w3.org/2000/svg">', "")), "SVG namespace must not flag"
+assert any(h["id"] == "http_plain" for h in psK.run_rules('fetch("http://api.example.com/x")', "")), "real plain-http still flags"
+print("V1.2.2 CHECKS PASSED")

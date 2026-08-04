@@ -24,7 +24,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 
 MODEL = "claude-haiku-4-5"
 MAX_SNIPPET_CHARS = 3000  # cap what we send to the model per change
@@ -175,7 +175,7 @@ RULES = [
      re.compile(r"(?i)(debug\s*=\s*true|app\.debug|NODE_ENV.{0,10}development)")),
     ("http_plain", "keep_an_eye_on", "Information may travel over an unlocked connection",
      "Check whether this connection should use the locked (https) version instead.",
-     re.compile(r"""["']http://(?!(?:localhost|127\.0\.0\.1)["':/])""")),
+     re.compile(r"""["']http://(?!(?:localhost|127\.0\.0\.1)["':/]|www\.w3\.org)""")),
 ]
 
 # Rules whose matched content is itself a secret. Their matches are redacted
