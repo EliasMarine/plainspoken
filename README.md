@@ -100,3 +100,7 @@ Rebuild the view any time with `python3 .plainspoken/plainspoken.py render`.
 - Add rules to the `RULES` list in `plainspoken.py`: id, severity, plain-English name, the "ask Claude this" fix line, and a regex.
 - Severities: **STOP AND CHECK** (act now), **FIX SOON**, **FOR AWARENESS**.
 - See [PRD.md](PRD.md) for the full product spec, principles, and roadmap.
+
+## License
+
+[MIT](LICENSE) — free to use, modify, and share.
