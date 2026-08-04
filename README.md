@@ -6,7 +6,11 @@ You build with AI. Plainspoken tells you what actually changed — in consequenc
 
 ## What you see
 
-Everything lands in one file, `.plainspoken/CHANGELOG.plain.md`. A session reads like this:
+Everything lands in one file, `.plainspoken/CHANGELOG.plain.md`. This is a real one from a test project — three warning tiers pinned on top, a fixed issue moved to resolved, and the plain-English feed below:
+
+![The Plainspoken changelog: pinned warnings at three severities, a resolved finding, and the plain-English change feed](docs/changelog-screenshot.png)
+
+As text, a session reads like this:
 
 ```markdown
 # Your App: What Changed, In Plain English
