@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
-    <img src="docs/logo.svg" alt="Plainspoken logo: a megaphone announcing changes, with one sound wave flagged amber" width="140">
-  </picture>
+  <img src="docs/logo.svg" alt="Plainspoken logo: a quirky cartoon bird in a jaunty hat cheerfully saying 'Well, hello!' in a speech bubble" width="260">
 </p>
 
 # Plainspoken

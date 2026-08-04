@@ -1,21 +1,102 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- Plainspoken: a handheld megaphone narrating changes; the outer wave is the flagged one. -->
-  <g transform="rotate(-12 256 256)">
-    <!-- handle -->
-    <path d="M178 300 v88 a22 22 0 0 0 22 22 h20 a22 22 0 0 0 22 -22 v-62"
-          fill="none" stroke="#1F2A44" stroke-width="24" stroke-linecap="round"/>
-    <!-- horn -->
-    <path d="M126 216 L306 150 A20 20 0 0 1 333 169 V343 A20 20 0 0 1 306 362 L126 296 Z"
-          fill="#FFF9F2" stroke="#1F2A44" stroke-width="24" stroke-linejoin="round"/>
-    <!-- rear cap -->
-    <rect x="86" y="212" width="48" height="88" rx="18"
-          fill="#FFF9F2" stroke="#1F2A44" stroke-width="24"/>
-    <!-- bell rim -->
-    <rect x="322" y="146" width="36" height="220" rx="18" fill="#1F2A44"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="700" viewBox="0 0 900 700" role="img" aria-labelledby="title desc">
+  <title id="title">Quirky cartoon bird wearing a hat and speaking</title>
+  <desc id="desc">A cheerful turquoise bird in a crooked orange hat says Well, hello in a speech bubble.</desc>
+
+  <defs>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#30264a" flood-opacity="0.22"/>
+    </filter>
+    <linearGradient id="bodyGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7ee6d2"/>
+      <stop offset="1" stop-color="#35a9b7"/>
+    </linearGradient>
+    <linearGradient id="hatGradient" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffb347"/>
+      <stop offset="1" stop-color="#f26a3d"/>
+    </linearGradient>
+  </defs>
+
+  <!-- soft ground shadow -->
+  <ellipse cx="380" cy="626" rx="190" ry="30" fill="#30264a" opacity="0.13"/>
+
+  <!-- speech bubble -->
+  <g filter="url(#shadow)">
+    <path d="M533 84 C533 48 571 28 613 28 H798 C844 28 872 54 872 93 V217 C872 255 843 278 799 278 H685 L631 326 L643 278 H610 C563 278 533 252 533 214 Z"
+          fill="#fffdf5" stroke="#30264a" stroke-width="9" stroke-linejoin="round"/>
+    <text x="703" y="126" text-anchor="middle" fill="#30264a"
+          font-family="Verdana, sans-serif" font-size="43" font-weight="800">
+      <tspan x="703" dy="0">WELL,</tspan>
+      <tspan x="703" dy="55">HELLO!</tspan>
+    </text>
   </g>
-  <!-- sound waves: plain narration, then the flagged one -->
-  <g fill="none" stroke-linecap="round">
-    <path d="M398 196 a66 66 0 0 1 0 124" stroke="#5A6478" stroke-width="22"/>
-    <path d="M446 164 a106 106 0 0 1 0 188" stroke="#D97706" stroke-width="22"/>
+
+  <!-- bird tail feathers -->
+  <g stroke="#30264a" stroke-width="10" stroke-linejoin="round">
+    <path d="M231 491 C133 500 95 556 90 613 C151 615 222 582 272 535 Z" fill="#f26a3d"/>
+    <path d="M244 510 C158 548 153 603 165 642 C224 621 267 576 286 530 Z" fill="#ffd166"/>
+  </g>
+
+  <!-- bird body -->
+  <path d="M208 381 C208 273 289 198 393 207 C507 217 570 315 557 441 C546 552 476 615 359 610 C242 605 190 527 208 381 Z"
+        fill="url(#bodyGradient)" stroke="#30264a" stroke-width="11" stroke-linejoin="round" filter="url(#shadow)"/>
+
+  <!-- belly -->
+  <path d="M320 365 C407 344 497 397 498 485 C499 555 449 594 362 594 C305 594 271 560 273 504 C275 442 287 389 320 365 Z"
+        fill="#d9fff3" opacity="0.92"/>
+
+  <!-- far wing -->
+  <path d="M475 358 C548 367 591 420 576 493 C566 540 523 561 476 533 C501 499 505 463 486 435 C470 412 462 386 475 358 Z"
+        fill="#248d9d" stroke="#30264a" stroke-width="10" stroke-linejoin="round"/>
+
+  <!-- near wing, waving -->
+  <path d="M250 388 C194 401 157 445 166 490 C174 529 213 530 239 505 C224 541 250 562 280 540 C304 523 316 488 320 448 C322 416 289 380 250 388 Z"
+        fill="#52c7bd" stroke="#30264a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M206 480 Q223 459 241 479" fill="none" stroke="#30264a" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- head tufts -->
+  <path d="M292 224 Q265 168 313 180 Q325 133 352 185 Q386 145 389 206"
+        fill="#6ed8cb" stroke="#30264a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- eyes -->
+  <g>
+    <ellipse cx="343" cy="292" rx="50" ry="55" fill="#fffdf5" stroke="#30264a" stroke-width="9"/>
+    <ellipse cx="441" cy="287" rx="46" ry="52" fill="#fffdf5" stroke="#30264a" stroke-width="9"/>
+    <circle cx="355" cy="300" r="17" fill="#30264a"/>
+    <circle cx="429" cy="296" r="17" fill="#30264a"/>
+    <circle cx="361" cy="293" r="5" fill="#fff"/>
+    <circle cx="435" cy="289" r="5" fill="#fff"/>
+    <path d="M301 258 Q338 230 373 251" fill="none" stroke="#30264a" stroke-width="9" stroke-linecap="round"/>
+    <path d="M410 247 Q446 225 477 254" fill="none" stroke="#30264a" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <!-- open speaking beak -->
+  <g stroke="#30264a" stroke-width="9" stroke-linejoin="round">
+    <path d="M375 337 Q420 314 466 343 Q421 361 376 349 Z" fill="#ffd166"/>
+    <path d="M376 349 Q422 357 458 382 Q410 399 379 367 Z" fill="#f26a3d"/>
+  </g>
+  <path d="M399 372 Q421 362 440 377" fill="none" stroke="#8f3142" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- cheek -->
+  <ellipse cx="313" cy="350" rx="23" ry="13" fill="#f26a6b" opacity="0.7"/>
+
+  <!-- jaunty hat -->
+  <g transform="rotate(-10 384 188)" filter="url(#shadow)" stroke="#30264a" stroke-width="10" stroke-linejoin="round">
+    <path d="M296 191 Q390 159 493 191 Q500 211 482 226 Q387 203 288 226 Q275 207 296 191 Z" fill="#f26a3d"/>
+    <path d="M326 185 L347 83 Q391 57 435 87 L466 188 Q392 169 326 185 Z" fill="url(#hatGradient)"/>
+    <path d="M337 139 Q395 119 450 142 L460 177 Q394 158 329 177 Z" fill="#6a4c93"/>
+    <path d="M431 91 Q466 60 489 76 Q489 111 446 132" fill="#ffd166"/>
+  </g>
+
+  <!-- legs -->
+  <g fill="none" stroke="#30264a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M328 588 Q331 618 315 631 M315 631 l-30 7 M315 631 l21 14"/>
+    <path d="M426 590 Q430 620 415 635 M415 635 l-29 9 M415 635 l24 13"/>
+  </g>
+
+  <!-- decorative talk marks -->
+  <g fill="none" stroke="#f26a3d" stroke-width="9" stroke-linecap="round">
+    <path d="M511 320 l31 -12"/>
+    <path d="M518 346 l35 4"/>
+    <path d="M505 295 l18 -25"/>
   </g>
 </svg>
