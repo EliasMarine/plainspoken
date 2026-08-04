@@ -343,9 +343,13 @@ assert not (projF / ".plainspoken/concepts.json").exists(), "discarded digest mu
 psE, projE = fresh()
 (projE / ".claude").mkdir()
 (projE / ".claude" / "settings.json").write_text('{"hooks": {"cmd": "plainspoken narrate"}}')
+os.environ["ANTHROPIC_API_KEY"] = "test-dummy-for-doctor"  # CI has no claude CLI
 buf = _io.StringIO()
-with contextlib.redirect_stdout(buf):
-    assert psE.cmd_doctor() == 0, buf.getvalue()
+try:
+    with contextlib.redirect_stdout(buf):
+        assert psE.cmd_doctor() == 0, buf.getvalue()
+finally:
+    del os.environ["ANTHROPIC_API_KEY"]
 (projE / ".plainspoken" / "findings.json").write_text("{corrupt")
 with contextlib.redirect_stdout(buf):
     assert psE.cmd_doctor() == 1, "corrupt findings must fail doctor"

@@ -1,5 +1,10 @@
 # Plainspoken
 
+[![CI](https://github.com/EliasMarine/plainspoken/actions/workflows/ci.yml/badge.svg)](https://github.com/EliasMarine/plainspoken/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/tag/EliasMarine/plainspoken?label=release)](https://github.com/EliasMarine/plainspoken/tags)
+![Python](https://img.shields.io/badge/python-3.9%2B%20stdlib%20only-blue)
+
 Plain-English narration and safety flags for AI-generated code changes, built as a Claude Code hook.
 
 You build with AI. Plainspoken tells you what actually changed — in consequences, not code. It's the friend who reads the contract before you sign it.
@@ -103,6 +108,7 @@ Rebuild the view any time with `python3 .plainspoken/plainspoken.py render`. Che
 
 - Add rules to the `RULES` list in `plainspoken.py`: id, severity, plain-English name, the "ask Claude this" fix line, and a regex.
 - Severities: **STOP AND CHECK** (act now), **FIX SOON**, **FOR AWARENESS**.
+- Run the regression suite with `python3 tests/test_plainspoken.py` (stdlib only, no network; the same suite runs in CI on Python 3.9/3.11/3.13).
 - See [PRD.md](PRD.md) for the full product spec, principles, and roadmap.
 
 ## License
