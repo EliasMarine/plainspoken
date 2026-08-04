@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(npx prisma migrate reset:*)",
+      "Bash(prisma migrate reset:*)",
+      "Bash(npx prisma db push --force-reset:*)",
+      "Bash(prisma db push --force-reset:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.plainspoken/plainspoken.py\" narrate",
+            "timeout": 60,
+            "statusMessage": "Narrating change..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.plainspoken/plainspoken.py\" digest",
+            "timeout": 60,
+            "statusMessage": "Writing session digest..."
+          }
+        ]
+      }
+    ]
+  }
+}
