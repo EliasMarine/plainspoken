@@ -637,7 +637,7 @@ def load_findings() -> dict:
         # text. Secrets in docs keep their severity — a pasted key is real.
         base = os.path.basename(f["file"])
         if (is_doc_path(base) and f.get("rule") not in SECRET_RULE_IDS
-                and f.get("severity") != "keep_an_eye_on"):
+                and DOC_IMPACT not in (f.get("warning_md") or "")):
             name = f.get("name", "a flagged pattern")
             if not name.startswith("A notes or planning document"):
                 name = f"A notes or planning document mentions: {name[0].lower() + name[1:]}"
@@ -785,9 +785,11 @@ def render_changelog() -> None:
     feed_src = sorted((e for e in events if e.get("narration") and not e.get("skipped")),
                       key=lambda e: e.get("ts", ""))
     display = [e for e in feed_src
-               if e.get("type") == "digest" or e.get("affects") in USER_FACING_AFFECTS]
+               if e.get("type") == "digest" or e.get("affects") in USER_FACING_AFFECTS
+               or e.get("warnings")]
     plumbing = [e for e in feed_src
-                if e.get("type") != "digest" and e.get("affects") not in USER_FACING_AFFECTS]
+                if e.get("type") != "digest" and e.get("affects") not in USER_FACING_AFFECTS
+                and not e.get("warnings")]
     hidden = max(0, len(display) - FEED_RENDER_CAP)
     window = display[-FEED_RENDER_CAP:]
     if hidden:
