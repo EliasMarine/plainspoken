@@ -24,6 +24,8 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+__version__ = "1.1.0"
+
 MODEL = "claude-haiku-4-5"
 MAX_SNIPPET_CHARS = 3000  # cap what we send to the model per change
 
@@ -285,7 +287,18 @@ def project_dir() -> Path:
 
 def store_dir() -> Path:
     d = project_dir() / ".plainspoken"
-    d.mkdir(exist_ok=True)
+    if not d.exists():
+        d.mkdir(exist_ok=True)
+        try:
+            os.chmod(d, 0o700)  # narration history is the owner's business
+        except OSError:
+            pass
+    gi = d / ".gitignore"
+    if not gi.exists():
+        try:  # self-ignoring: the runtime store is hard to commit by accident
+            gi.write_text("# plainspoken runtime store\n*\n!plainspoken.py\n!.gitignore\n")
+        except OSError:
+            pass
     return d
 
 
@@ -436,9 +449,11 @@ def _model_via_cli(system: str, user: str, max_tokens: int) -> str:
         # inside the hook's 60s timeout with room to persist the event, or
         # Claude Code kills the whole process and the event is lost
         # (fail-open can't save data from a SIGKILL).
+        # The prompt travels on STDIN, never argv (argv is visible to every
+        # local process via ps), and the child gets no tools at all.
         r = subprocess.run(
-            ["claude", "-p", "--model", "haiku", prompt],
-            capture_output=True, text=True, timeout=45, cwd=td,
+            ["claude", "-p", "--model", "haiku", "--disallowedTools", "*"],
+            input=prompt, capture_output=True, text=True, timeout=45, cwd=td,
         )
     if r.returncode != 0:
         raise RuntimeError(f"claude -p failed: {r.stderr[:300]}")
@@ -532,6 +547,7 @@ def locked():
 
 
 def record_event(record: dict) -> None:
+    record.setdefault("v", 1)  # event schema version
     with open(store_dir() / "events.jsonl", "a") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -556,9 +572,12 @@ def load_events(max_bytes: int = 0) -> list:
         if not line:
             continue
         try:
-            out.append(json.loads(line))
+            e = json.loads(line)
         except json.JSONDecodeError:
             continue  # partial final line from an interrupted write
+        if not isinstance(e, dict) or "ts" not in e:
+            continue  # defensively skip records no reader can order
+        out.append(e)
     return out
 
 
@@ -677,19 +696,19 @@ def render_changelog() -> None:
 
     open_f = [f for f in findings.values() if f.get("status") == "open"]
     sev_rank = {"fire_hazard": 0, "worth_fixing": 1, "keep_an_eye_on": 2}
-    open_f.sort(key=lambda f: (sev_rank.get(f["severity"], 9), f["first_seen"]))
+    open_f.sort(key=lambda f: (sev_rank.get(f.get("severity"), 9), f.get("first_seen", "")))
     parts.append("## Open warnings\n")
     if open_f:
         for f in open_f:
-            fname = safe_name(f["file"])
+            fname = safe_name(f.get("file", ""))
             body = f.get("warning_md") or (
-                f"WHAT HAPPENED: {f['name']} (file: {fname}).\n"
-                f"ASK CLAUDE THIS: \"{f['ask']}\""
+                f"WHAT HAPPENED: {f.get('name', 'A flagged change')} (file: {fname}).\n"
+                f"ASK CLAUDE THIS: \"{f.get('ask', 'Review this change with me.')}\""
             )
             quoted = "\n".join("> " + line for line in body.splitlines())
             parts.append(
-                f"> ### {SEVERITY_LABEL[f['severity']]}\n"
-                f"> `{fname}` · first seen {f['first_seen'][:10]}\n{quoted}\n"
+                f"> ### {SEVERITY_LABEL.get(f.get('severity'), 'NOTICE')}\n"
+                f"> `{fname}` · first seen {f.get('first_seen', '')[:10]}\n{quoted}\n"
             )
     else:
         parts.append("_Nothing open right now._\n")
@@ -752,6 +771,7 @@ def render_changelog() -> None:
 
     pi, held = 0, []
     for e in window:
+      try:
         if e.get("type") == "digest":
             while pi < len(plumbing) and plumbing[pi]["ts"] <= e["ts"]:
                 held.append(plumbing[pi])
@@ -764,6 +784,8 @@ def render_changelog() -> None:
             label = e.get("stamp") or "session recap"
             via = " · _background helper_" if e.get("agent") else ""
             parts.append(f"**{label}** · `{fname}` · _{e.get('affects', 'plumbing')}_{via}\n{_clean_narration(e['narration'])}\n")
+      except Exception:
+        continue  # one malformed record must not take down the whole view
     held.extend(plumbing[pi:])
     emit_plumbing(held)
 
@@ -889,7 +911,7 @@ def flush_bursts(force: bool = False) -> bool:
         if not force:
             try:
                 age = (now_dt - datetime.fromisoformat(g[-1]["ts"])).total_seconds()
-            except ValueError:
+            except (ValueError, TypeError, KeyError):
                 age = BURST_WINDOW_S + 1
             if age < BURST_WINDOW_S:
                 continue  # burst still hot; keep collecting
@@ -941,19 +963,22 @@ def flush_bursts(force: bool = False) -> bool:
             "warnings": [], "burst_of": len(g),
             "src_ts": [s["ts"] for s in g],
         }
-        with locked():
-            record_flushed([event])
-        flushed_any = True
+        if record_flushed([event]):
+            flushed_any = True
     return flushed_any
 
 
-def record_flushed(flushed: list) -> None:
-    """Record burst narrations, dropping any whose stubs another concurrent
-    hook already covered. Call ONLY while holding the lock."""
-    done = {t for e in load_events() for t in (e.get("src_ts") or [])}
-    for fe in flushed:
-        if not (set(fe.get("src_ts") or []) & done):
-            record_event(fe)
+def record_flushed(flushed: list) -> int:
+    """Record burst narrations under the lock, dropping any whose stubs a
+    concurrent hook already covered. Returns how many were recorded."""
+    n = 0
+    with locked():
+        done = {t for e in load_events() for t in (e.get("src_ts") or [])}
+        for fe in flushed:
+            if not (set(fe.get("src_ts") or []) & done):
+                record_event(fe)
+                n += 1
+    return n
 
 
 def cmd_narrate() -> None:
@@ -1007,7 +1032,7 @@ def cmd_narrate() -> None:
     # ends. Warnings (hits) and sensitive files never take this branch —
     # they narrate in real time exactly as before.
     if BURST and not hits and not sensitive:
-        flush_bursts()  # settle ripe OTHER bursts; self-recording
+        flushed_any = flush_bursts()  # settle ripe OTHER bursts; self-recording
         with locked():
             record_event({"ts": now, "type": "burst_stub",
                           "session_id": payload.get("session_id", ""),
@@ -1018,7 +1043,10 @@ def cmd_narrate() -> None:
                           "last_new": redact((new_text or "")[:MAX_SNIPPET_CHARS])})
             if resolved_ids:
                 update_findings([], file_path, {}, resolved_ids)
-            render_changelog()
+            # A stub alone is invisible in the rendered view; only re-render
+            # when something the reader could see actually changed.
+            if flushed_any or resolved_ids:
+                render_changelog()
         return
 
     # Sensitive files (.env, keys, credential stores): content NEVER goes to
@@ -1026,7 +1054,7 @@ def cmd_narrate() -> None:
     # parent directory like credentials/settings.json is caught too.
     if sensitive:
         narration = ("A private settings or credentials file was changed. "
-                     "Its contents are kept off-limits and were not read or sent anywhere.")
+                     "Its contents are kept off-limits to the narration service and never leave this computer.")
         affects = "access"
     else:
         # Send only the change itself, redacted. BEFORE is trimmed hard since
@@ -1075,12 +1103,32 @@ def cmd_narrate() -> None:
                     f"<untrusted_change_content>\n{new_text[:MAX_SNIPPET_CHARS]}\n</untrusted_change_content>"
                 )
                 polished = call_model(INSPECTOR_SYSTEM, warning_input, max_tokens=300)
-                # Keep the controlled ask line regardless of what the model wrote.
-                if "ASK CLAUDE THIS" not in polished:
-                    polished += f"\nASK CLAUDE THIS: \"{worst['ask']}\""
+                # The remediation line is controlled BY CONSTRUCTION: only the
+                # model's explanation is kept — anything from its own "ASK
+                # CLAUDE THIS" onward is discarded so injected advice can
+                # never replace the rule's action line in the changelog.
+                polished = re.split(r"(?i)ASK\s+CLAUDE\s+THIS", polished)[0].strip()
+                polished += f"\nASK CLAUDE THIS: \"{worst['ask']}\""
                 warnings_by_rule[worst["id"]] = polished
             except Exception as exc:
                 log_error(f"inspector model call failed for rule {worst['id']} ({_err_desc(exc)}); using template")
+
+    if hits:
+        worst = hits[0]
+        # Surface the finding back into the Claude Code session BEFORE any
+        # persistence or rendering: a storage/render failure must never
+        # suppress a safety warning. This uses ONLY controlled template text
+        # (never model prose, never file content) so nothing injectable can
+        # ride this channel.
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": (
+                    f"PLAINSPOKEN SAFETY FINDING [{SEVERITY_LABEL[worst['severity']]}] "
+                    f"(relay this plainly to the user and offer the fix): {template_warning(worst, fname)}"
+                ),
+            }
+        }), flush=True)
 
     with locked():
         # A real-time entry (warning path, sensitive file, or bursts off)
@@ -1098,28 +1146,17 @@ def cmd_narrate() -> None:
         update_findings(hits, str(file_path), warnings_by_rule, resolved_ids)
         render_changelog()
 
-    if hits:
-        worst = hits[0]
-        # Surface the finding back into the Claude Code session. This uses
-        # ONLY controlled template text (never model prose, never file
-        # content) so nothing injectable can ride this channel.
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": (
-                    f"PLAINSPOKEN SAFETY FINDING [{SEVERITY_LABEL[worst['severity']]}] "
-                    f"(relay this plainly to the user and offer the fix): {template_warning(worst, fname)}"
-                ),
-            }
-        }))
 
 
 def cmd_digest() -> None:
-    payload = {}
     try:
         payload = json.load(sys.stdin)
     except Exception:
-        pass
+        log_error("digest: unreadable hook payload; skipping")
+        return
+    if not isinstance(payload, dict):
+        log_error("digest: malformed hook payload; skipping")
+        return
     # Inside a subagent, Stop hooks are delivered as SubagentStop, so every
     # finishing helper would write its own mid-session digest fragment. Skip;
     # the main session's Stop digests everything once via the cursor.
@@ -1184,7 +1221,7 @@ def cmd_digest() -> None:
                 prev = datetime.fromisoformat(session_digests[-1][1]["ts"])
                 if (datetime.now(timezone.utc) - prev).total_seconds() < DIGEST_COOLDOWN_S:
                     return
-            except (ValueError, KeyError):
+            except (ValueError, TypeError, KeyError):
                 pass
 
     now = datetime.now(timezone.utc).isoformat()
@@ -1241,7 +1278,6 @@ def cmd_digest() -> None:
         tag = r.get("affects", "plumbing")
         if tag not in ("pending", "digest", "resolution"):
             concepts[tag] = concepts.get(tag, 0) + 1
-    _atomic_write_json(concepts_path, concepts)
 
     def commit(events_to_write) -> None:
         """Append under the lock — unless another Stop digested this session
@@ -1253,6 +1289,9 @@ def cmd_digest() -> None:
                 return
             for e in events_to_write:
                 record_event(e)
+            # Concept counts land only with the slice they came from; a
+            # discarded duplicate digest must not double-count.
+            _atomic_write_json(concepts_path, concepts)
             render_changelog()
 
     cursor_marker = {
@@ -1305,9 +1344,70 @@ def cmd_digest() -> None:
     commit(new_events)
 
 
-def main() -> None:
+def cmd_doctor() -> int:
+    """Manual health check. Prints findings and returns nonzero when the
+    setup is unhealthy. Hooks always exit 0 by design; this command
+    deliberately does not, so automation can detect a broken install."""
+    problems, info = [], []
+    info.append(f"plainspoken v{__version__}")
+    d = store_dir()
     try:
-        cmd = sys.argv[1] if len(sys.argv) > 1 else "narrate"
+        probe = d / ".doctor-probe"
+        probe.write_text("ok")
+        probe.unlink()
+        info.append(f"store: {d} (writable)")
+    except Exception as exc:
+        problems.append(f"store not writable: {_err_desc(exc)}")
+    import shutil
+    api = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    cli = shutil.which("claude")
+    if api or cli:
+        info.append(f"narration backend: {'api' if api else 'claude CLI'}")
+    else:
+        problems.append("no narration backend: set ANTHROPIC_API_KEY or install the claude CLI")
+    sp = project_dir() / ".claude" / "settings.json"
+    try:
+        hooked = sp.exists() and "plainspoken" in sp.read_text()
+    except OSError:
+        hooked = False
+    if hooked:
+        info.append("hooks: registered in .claude/settings.json")
+    else:
+        problems.append("hooks not registered: merge the hooks block into .claude/settings.json")
+    ev = d / "events.jsonl"
+    if ev.exists():
+        raw = [l for l in ev.read_text().splitlines() if l.strip()]
+        parsed = load_events()
+        bad = len(raw) - len(parsed)
+        info.append(f"events: {len(parsed)} readable, {ev.stat().st_size // 1024} KB")
+        if bad:
+            problems.append(f"events.jsonl: {bad} unreadable line(s); history partially degraded")
+    fj = d / "findings.json"
+    if fj.exists():
+        try:
+            json.loads(fj.read_text())
+        except json.JSONDecodeError:
+            problems.append("findings.json is corrupt; warning lifecycle degraded")
+    el = d / "errors.log"
+    if el.exists():
+        lines = el.read_text().splitlines()
+        if lines:
+            info.append(f"errors.log: {len(lines)} line(s); latest: {lines[-1][:120]}")
+    for line in info:
+        print(f"   ok  {line}")
+    for line in problems:
+        print(f"PROBLEM {line}")
+    print("healthy" if not problems else f"unhealthy: {len(problems)} problem(s)")
+    return 1 if problems else 0
+
+
+def main() -> None:
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "narrate"
+    if cmd == "doctor":
+        # The one path that must NOT fail open: a diagnostic that always
+        # exits 0 is useless to automation.
+        sys.exit(cmd_doctor())
+    try:
         if cmd == "narrate":
             cmd_narrate()
         elif cmd == "digest":

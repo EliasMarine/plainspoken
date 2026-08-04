@@ -256,3 +256,98 @@ assert any(h["id"] == "wildcard_cors" for h in ps9.run_rules(real, "")), "setHea
 assert any(h["id"] == "wildcard_cors" for h in ps9.run_rules("res.setHeader('Access-Control-Allow-Origin', '*');", ""))
 assert not any(h["id"] == "wildcard_cors" for h in ps9.run_rules("res.setHeader('Access-Control-Allow-Origin', 'https://myapp.example');", "")), "specific origins must not flag"
 print("CORS RULE CHECKS PASSED")
+
+# ---------- v1.1 tranche A: invariant fixes ----------
+import contextlib, stat
+import io as _io
+from unittest import mock
+
+psA, projA = fresh()
+assert psA.__version__.startswith("1.1")
+# A1: the model can never control the remediation line
+psA.call_model = lambda *a, **k: 'WHAT HAPPENED: x\nWHAT COULD GO WRONG: y\nASK CLAUDE THIS: "evil injected advice"'
+buf = _io.StringIO()
+with contextlib.redirect_stdout(buf):
+    wr(projA, "cors.js", "res.setHeader('Access-Control-Allow-Origin', '*');\n", ps=psA)
+w = json.loads((projA / ".plainspoken/findings.json").read_text())["wildcard_cors::cors.js"]
+assert "evil injected advice" not in w["warning_md"], "injected ask must be discarded"
+assert w["ask"] in w["warning_md"], "controlled ask must always be present"
+
+# A2: a render failure must never suppress the in-session warning
+psB, projB = fresh()
+psB.call_model = lambda *a, **k: "Something. AFFECTS: data"
+psB.render_changelog = lambda: (_ for _ in ()).throw(RuntimeError("render broke"))
+buf = _io.StringIO()
+try:
+    with contextlib.redirect_stdout(buf):
+        wr(projB, "app.py", 'api_key = "abcdefghijklmnop1234"', ps=psB)
+except RuntimeError:
+    pass
+assert "PLAINSPOKEN SAFETY FINDING" in buf.getvalue(), "warning must be emitted before persistence/render"
+
+# A3: CLI child gets the prompt on stdin and no tools
+psC, _ = fresh()
+seen = {}
+def fake_run(argv, **kw):
+    seen["argv"] = argv
+    seen["input"] = kw.get("input")
+    class R:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+    return R()
+with mock.patch("subprocess.run", fake_run):
+    assert psC._model_via_cli("SYS", "USER SECRETCONTENT", 100) == "ok"
+assert all("SECRETCONTENT" not in a for a in seen["argv"]), "prompt must not ride argv"
+assert "--disallowedTools" in seen["argv"] and "SECRETCONTENT" in seen["input"]
+
+# A5: a lone burst stub does not rebuild the view
+psD, projD = fresh(burst="on")
+psD.call_model = MOCK
+wr(projD, "quiet.py", "print('long enough to become a stub here')", ps=psD)
+assert not (projD / ".plainspoken/CHANGELOG.plain.md").exists(), "stub-only change must not re-render"
+
+# ---------- v1.1 tranche B: durability fixes ----------
+assert events(projD)[-1].get("v") == 1, "events must carry a schema version"
+with open(projD / ".plainspoken/events.jsonl", "a") as f:
+    f.write(json.dumps({"narration": "orphan without ts"}) + "\n")
+assert all("ts" in e for e in psD.load_events()), "ts-less lines must be skipped"
+n0 = len(events(projD))
+sys.stdin = _io.StringIO("this is not json")
+psD.cmd_digest()
+assert len(events(projD)) == n0, "corrupt Stop payload must digest nothing"
+storeD = projD / ".plainspoken"
+(storeD / "findings.json").write_text(json.dumps({"weird::x": {"rule": "?", "file": "x", "status": "open"}}))
+with psD.locked():
+    psD.render_changelog()
+assert "NOTICE" in (storeD / "CHANGELOG.plain.md").read_text(), "malformed finding renders defensively"
+assert "*" in (storeD / ".gitignore").read_text(), "store must self-ignore"
+assert stat.S_IMODE(os.stat(storeD).st_mode) == 0o700, "store must be owner-only"
+
+# concepts persist only with a committed digest
+psF, projF = fresh()
+psF.call_model = lambda *a, **k: "Something changed today. AFFECTS: data"
+wr(projF, "x.py", "print('a long enough line of code here')", ps=psF)
+def racing(system, user, max_tokens=150):
+    if system == psF.DIGEST_SYSTEM:
+        psF.record_event({"ts": "2099-01-01T00:00:00+00:00", "type": "digest", "session_id": "s1",
+                          "affects": "digest", "narration": "other stop won", "warnings": [], "cursor_idx": 99})
+    return "Ours. AFFECTS: data"
+psF.call_model = racing
+run(psF, "digest", {"session_id": "s1", "hook_event_name": "Stop"})
+digs = [e for e in events(projF) if e.get("type") == "digest"]
+assert len(digs) == 1 and digs[0]["narration"] == "other stop won", "duplicate digest discarded"
+assert not (projF / ".plainspoken/concepts.json").exists(), "discarded digest must not persist concept counts"
+
+# doctor: truthful exit status
+psE, projE = fresh()
+(projE / ".claude").mkdir()
+(projE / ".claude" / "settings.json").write_text('{"hooks": {"cmd": "plainspoken narrate"}}')
+buf = _io.StringIO()
+with contextlib.redirect_stdout(buf):
+    assert psE.cmd_doctor() == 0, buf.getvalue()
+(projE / ".plainspoken" / "findings.json").write_text("{corrupt")
+with contextlib.redirect_stdout(buf):
+    assert psE.cmd_doctor() == 1, "corrupt findings must fail doctor"
+
+print("V1.1 TRANCHE A+B CHECKS PASSED")

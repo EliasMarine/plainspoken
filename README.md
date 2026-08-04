@@ -86,7 +86,7 @@ Three layers, all inside one hook script:
 | concepts.json | Tutor state |
 | errors.log | Handler errors (always fail-open) |
 
-Rebuild the view any time with `python3 .plainspoken/plainspoken.py render`.
+Rebuild the view any time with `python3 .plainspoken/plainspoken.py render`. Check your setup with `python3 .plainspoken/plainspoken.py doctor` (exits nonzero when unhealthy).
 
 ## Settings (environment variables, all optional)
 
