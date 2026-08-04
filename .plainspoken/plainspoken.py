@@ -152,7 +152,7 @@ RULES = [
      re.compile(r"sk_live_[0-9a-zA-Z]{20,}")),
     ("wildcard_cors", "worth_fixing", "The app was set to accept requests from any website on the internet",
      "Restrict the app so it only accepts requests from my own site's address instead of from any website.",
-     re.compile(r"""(?i)(access-control-allow-origin["'\s:=]+\*|cors\(\s*\)|origin\s*:\s*["']\*["'])""")),
+     re.compile(r"""(?i)(access-control-allow-origin["'\s:=,]+\*|cors\(\s*\)|origin\s*:\s*["']\*["'])""")),
     ("auth_removed", "fire_hazard", "A sign-in or permission check appears to have been removed or switched off",
      "Check whether this page or action is still protected by a sign-in or permission check, and if not, add one back.",
      re.compile(r"""(?i)(#\s*(requireauth|authenticate|authorize)|//\s*(requireauth|auth)|skip[_-]?auth|auth\s*=\s*false|disable[_-]?auth)""")),
