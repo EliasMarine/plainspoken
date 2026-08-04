@@ -24,7 +24,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 MODEL = "claude-haiku-4-5"
 MAX_SNIPPET_CHARS = 3000  # cap what we send to the model per change
@@ -271,6 +271,31 @@ RULE_IMPACT = {
     "http_plain": "Information sent over this connection may be readable or alterable while it travels.",
 }
 
+# Documents cannot run code. A rule hit inside a notes/planning file means
+# the TEXT DESCRIBES something risky, not that the app does it — so non-secret
+# doc findings are downgraded and worded honestly (a real secret pasted into a
+# doc is still a real leak and keeps its severity).
+DOC_ASK = ("Confirm the plan described in this document is what you want; "
+           "the document itself doesn't change the app.")
+DOC_IMPACT = ("A document cannot run code or expose data by itself; this flag "
+              "only means the text describes something risky, so you can decide "
+              "whether it belongs in the plan.")
+
+
+def doc_adjust_hits(hits: list) -> list:
+    out = []
+    for h in hits:
+        if h["id"] in SECRET_RULE_IDS:
+            out.append(h)
+            continue
+        name = h["name"]
+        out.append({**h, "severity": "keep_an_eye_on", "doc": True,
+                    "name": f"A notes or planning document mentions: {name[0].lower() + name[1:]}",
+                    "ask": DOC_ASK})
+    out.sort(key=lambda h: (SEVERITY_RANK.get(h["severity"], 99), h["id"]))
+    return out
+
+
 ALLOWED_AFFECTS = {"looks", "data", "access", "money", "messages", "speed", "plumbing"}
 
 
@@ -429,7 +454,10 @@ def template_warning(hit: dict, fname: str) -> str:
     Used as the fallback when the model is unavailable, as the entire warning
     for secret findings, and always as the text fed back into the Claude Code
     session."""
-    impact = RULE_IMPACT.get(hit["id"], "This could cause behavior the app owner did not intend.")
+    if hit.get("doc"):
+        impact = DOC_IMPACT
+    else:
+        impact = RULE_IMPACT.get(hit["id"], "This could cause behavior the app owner did not intend.")
     return (
         f"WHAT HAPPENED: {hit['name']} (file: {fname}).\n"
         f"WHAT COULD GO WRONG: {impact}\n"
@@ -604,6 +632,21 @@ def load_findings() -> dict:
     for f in raw.values():
         f = dict(f)
         f["file"] = normalize_path(f.get("file", ""))
+        # Migrate doc findings recorded before doc-awareness: downgrade and
+        # replace any model-fabricated exposure story with honest template
+        # text. Secrets in docs keep their severity — a pasted key is real.
+        base = os.path.basename(f["file"])
+        if (is_doc_path(base) and f.get("rule") not in SECRET_RULE_IDS
+                and f.get("severity") != "keep_an_eye_on"):
+            name = f.get("name", "a flagged pattern")
+            if not name.startswith("A notes or planning document"):
+                name = f"A notes or planning document mentions: {name[0].lower() + name[1:]}"
+            f["severity"] = "keep_an_eye_on"
+            f["name"] = name
+            f["ask"] = DOC_ASK
+            f["warning_md"] = template_warning(
+                {"id": f.get("rule", ""), "doc": True, "name": name, "ask": DOC_ASK},
+                safe_name(base))
         out[finding_id(f.get("rule", ""), f["file"])] = f
     return out
 
@@ -697,10 +740,23 @@ def render_changelog() -> None:
     open_f = [f for f in findings.values() if f.get("status") == "open"]
     sev_rank = {"fire_hazard": 0, "worth_fixing": 1, "keep_an_eye_on": 2}
     open_f.sort(key=lambda f: (sev_rank.get(f.get("severity"), 9), f.get("first_seen", "")))
+
+    # Two findings can share a basename (src/a/util.ts vs src/b/util.ts) and
+    # read as duplicates; show the full path whenever the short name collides.
+    name_counts = {}
+    for f in findings.values():
+        name_counts[safe_name(f.get("file", ""))] = name_counts.get(safe_name(f.get("file", "")), 0) + 1
+
+    def display_name(path: str) -> str:
+        base = safe_name(path)
+        if name_counts.get(base, 0) <= 1:
+            return base
+        return re.sub(r"[\x00-\x1f\x7f]+", " ", str(path))[:160]
+
     parts.append("## Open warnings\n")
     if open_f:
         for f in open_f:
-            fname = safe_name(f.get("file", ""))
+            fname = display_name(f.get("file", ""))
             body = f.get("warning_md") or (
                 f"WHAT HAPPENED: {f.get('name', 'A flagged change')} (file: {fname}).\n"
                 f"ASK CLAUDE THIS: \"{f.get('ask', 'Review this change with me.')}\""
@@ -720,7 +776,7 @@ def render_changelog() -> None:
     if resolved:
         parts.append("## Recently resolved\n")
         for f in resolved:
-            parts.append(f"- {f['name']} (`{safe_name(f['file'])}`) · resolved {f.get('resolved_ts', '')[:10]}\n")
+            parts.append(f"- {f['name']} (`{display_name(f['file'])}`) · resolved {f.get('resolved_ts', '')[:10]}\n")
 
     parts.append("## Change feed\n")
     # Two-tier feed in timestamp order: user-facing entries render in full;
@@ -783,7 +839,11 @@ def render_changelog() -> None:
             fname = safe_name(e.get("file", ""))
             label = e.get("stamp") or "session recap"
             via = " · _background helper_" if e.get("agent") else ""
-            parts.append(f"**{label}** · `{fname}` · _{e.get('affects', 'plumbing')}_{via}\n{_clean_narration(e['narration'])}\n")
+            mark = ""
+            if e.get("warnings"):
+                sev = SEVERITY_LABEL.get(e["warnings"][0].get("severity"), "flagged")
+                mark = f"\n\n⚠ _This change was flagged {sev} — see Open warnings at the top._"
+            parts.append(f"**{label}** · `{fname}` · _{e.get('affects', 'plumbing')}_{via}\n{_clean_narration(e['narration'])}{mark}\n")
       except Exception:
         continue  # one malformed record must not take down the whole view
     held.extend(plumbing[pi:])
@@ -996,6 +1056,8 @@ def cmd_narrate() -> None:
     sensitive = is_sensitive_path(str(raw_path))
     file_content = read_disk(str(raw_path))
     hits = run_rules(new_text, old_text, fname=fname, file_content=file_content or "")
+    if hits and is_doc_path(fname):
+        hits = doc_adjust_hits(hits)
     resolved_ids = detect_resolutions(tool, file_path, new_text, old_text,
                                       load_findings(), file_content)
 
@@ -1095,9 +1157,10 @@ def cmd_narrate() -> None:
     warnings_by_rule = {h["id"]: template_warning(h, fname) for h in hits}
     if hits:
         worst = hits[0]  # run_rules sorts worst severity first
-        if not (worst["id"] in SECRET_RULE_IDS or sensitive):
+        if not (worst["id"] in SECRET_RULE_IDS or sensitive or worst.get("doc")):
             try:
                 warning_input = redact(
+                    f"{narration_note(fname)}"
                     f"Issue found: {worst['name']} (severity: {worst['severity']}).\n"
                     f"File: {fname}\n"
                     f"<untrusted_change_content>\n{new_text[:MAX_SNIPPET_CHARS]}\n</untrusted_change_content>"

@@ -263,7 +263,7 @@ import io as _io
 from unittest import mock
 
 psA, projA = fresh()
-assert psA.__version__.startswith("1.1")
+assert psA.__version__.startswith("1.")
 # A1: the model can never control the remediation line
 psA.call_model = lambda *a, **k: 'WHAT HAPPENED: x\nWHAT COULD GO WRONG: y\nASK CLAUDE THIS: "evil injected advice"'
 buf = _io.StringIO()
@@ -351,3 +351,68 @@ with contextlib.redirect_stdout(buf):
     assert psE.cmd_doctor() == 1, "corrupt findings must fail doctor"
 
 print("V1.1 TRANCHE A+B CHECKS PASSED")
+
+# ---------- v1.2: doc-aware inspector, inline markers, path disambiguation ----------
+psG, projG = fresh()
+assert psG.__version__.startswith("1.2")
+calls_log = []
+def logging_model(system, user, max_tokens=150):
+    calls_log.append((system, user))
+    return "WHAT HAPPENED: a\nWHAT COULD GO WRONG: b\nASK CLAUDE THIS: fake. AFFECTS: data"
+psG.call_model = logging_model
+# a plan document describing destructive SQL: downgraded, template-only, honest wording
+buf = _io.StringIO()
+with contextlib.redirect_stdout(buf):
+    wr(projG, "migration-plan.md", "Step 3: then we run DROP TABLE users; to reset the demo.", ps=psG)
+fG = json.loads((projG / ".plainspoken/findings.json").read_text())["destructive_db::migration-plan.md"]
+assert fG["severity"] == "keep_an_eye_on", "doc finding must be downgraded"
+assert "document" in fG["name"], "doc finding must say it's a document"
+assert "cannot run code" in fG["warning_md"], "doc warning must be template-only, not fabricated"
+assert "FOR AWARENESS" in buf.getvalue() and "STOP AND CHECK" not in buf.getvalue()
+# a real secret pasted into a doc keeps full severity
+wr(projG, "notes.md", 'here is the key: api_key = "abcdefghijklmnop1234"', ps=psG)
+fS = json.loads((projG / ".plainspoken/findings.json").read_text())["secret_key::notes.md"]
+assert fS["severity"] == "fire_hazard", "secrets in docs stay fire hazards"
+# test files: inspector model input carries the test framing
+calls_log.clear()
+wr(projG, "gate.test.ts", "res.setHeader('Access-Control-Allow-Origin', '*');", ps=psG)
+assert any("automated TEST" in u for _s, u in calls_log), "inspector input must carry test framing"
+
+# migration of legacy fabricated doc findings
+legacy = {"destructive_db::old-plan.md": {
+    "rule": "destructive_db", "file": "old-plan.md", "severity": "fire_hazard",
+    "name": "The change can permanently erase stored data", "ask": "old ask",
+    "status": "open", "first_seen": "t", "last_seen": "t",
+    "warning_md": "Your customers' data got exposed to the internet (fabricated)"}}
+merged = json.loads((projG / ".plainspoken/findings.json").read_text()) | legacy
+(projG / ".plainspoken/findings.json").write_text(json.dumps(merged))
+mig = psG.load_findings()["destructive_db::old-plan.md"]
+assert mig["severity"] == "keep_an_eye_on" and "fabricated" not in mig["warning_md"]
+assert "cannot run code" in mig["warning_md"]
+
+# inline markers + basename disambiguation
+psH, projH = fresh()
+storeH = projH / ".plainspoken"; storeH.mkdir()
+evsH = [
+    {"ts": "2026-08-04T10:00:00+00:00", "stamp": "Aug 04, 10:00 AM", "session_id": "s1",
+     "file": "src/a/util.ts", "affects": "data", "narration": "Something risky happened.",
+     "warnings": [{"id": "auth_removed", "severity": "fire_hazard", "name": "n", "ask": "a"}]},
+]
+with open(storeH / "events.jsonl", "w") as f:
+    for e in evsH:
+        f.write(json.dumps(e) + "\n")
+(storeH / "findings.json").write_text(json.dumps({
+    "auth_removed::src/a/util.ts": {"rule": "auth_removed", "file": "src/a/util.ts",
+        "severity": "fire_hazard", "name": "check removed", "ask": "fix it",
+        "status": "open", "first_seen": "2026-08-04", "last_seen": "2026-08-04", "warning_md": ""},
+    "auth_removed::src/b/util.ts": {"rule": "auth_removed", "file": "src/b/util.ts",
+        "severity": "fire_hazard", "name": "check removed", "ask": "fix it",
+        "status": "open", "first_seen": "2026-08-04", "last_seen": "2026-08-04", "warning_md": ""},
+}))
+with psH.locked():
+    psH.render_changelog()
+mdH = (storeH / "CHANGELOG.plain.md").read_text()
+assert "src/a/util.ts" in mdH and "src/b/util.ts" in mdH, "colliding basenames must show full paths"
+assert "flagged STOP AND CHECK" in mdH and "see Open warnings at the top" in mdH, "flagged entry must carry inline marker"
+
+print("V1.2 DOC-AWARE + RENDER CHECKS PASSED")
