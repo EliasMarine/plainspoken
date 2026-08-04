@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <!-- Plainspoken: a handheld megaphone narrating changes; the outer wave is the flagged one. -->
   <g transform="rotate(-12 256 256)">
+    <!-- handle -->
+    <path d="M178 300 v88 a22 22 0 0 0 22 22 h20 a22 22 0 0 0 22 -22 v-62"
+          fill="none" stroke="#1F2A44" stroke-width="24" stroke-linecap="round"/>
     <!-- horn -->
     <path d="M126 216 L306 150 A20 20 0 0 1 333 169 V343 A20 20 0 0 1 306 362 L126 296 Z"
           fill="#FFF9F2" stroke="#1F2A44" stroke-width="24" stroke-linejoin="round"/>
     <!-- rear cap -->
     <rect x="86" y="212" width="48" height="88" rx="18"
           fill="#FFF9F2" stroke="#1F2A44" stroke-width="24"/>
-    <!-- handle -->
-    <path d="M178 300 v88 a22 22 0 0 0 22 22 h20 a22 22 0 0 0 22 -22 v-62"
-          fill="none" stroke="#1F2A44" stroke-width="24" stroke-linecap="round"/>
     <!-- bell rim -->
     <rect x="322" y="146" width="36" height="220" rx="18" fill="#1F2A44"/>
   </g>
